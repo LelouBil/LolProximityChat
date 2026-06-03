@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Spectator Map</title>
+    <style>
+        body {
+            margin: 0;
+            background: black;
+        }
+
+        canvas {
+            display: block;
+            margin: auto;
+            background: #111;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="c" width="900" height="900"></canvas>
+<select id="playerSelect">
+    <option value="">Select Player</option>
+</select>
+<button id="startButton">Start</button>
+
+<script src="webrtc.mjs" type="module"></script>
+<script src="spatial.mjs" type="module"></script>
+
+<ul id="playerRoot" style="color: white">
+
+</ul>
+
+<script type="module">
+    import {createSignaling, getPlayerStream} from './webrtc.mjs';
+    import {SpatialAudioPlayer} from './spatial.mjs';
+
+    const ws = new WebSocket(`wss://${window.location.host}/ws`);
+
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d");
+
+    const playerRoot = document.getElementById('playerRoot');
+    const debugAudio = document.getElementById("debugaudio");
+
+
+    const playerSelectInput = document.getElementById("playerSelect");
+    playerSelectInput.addEventListener("input", e => {
+        console.log("Player select input changed:", e.target.value);
+    })
+
+    document.getElementById("startButton").addEventListener("click", async () => {
+        await setupVoice();
+    });
+
+    const DEAD_COORDS = {x: 9999, y: 9999, height: 9999}
+
+    const WORLD_MAX = 16000;
+    const WORLD_MIN = 0;
+
+    const REF_DIST = 200;
+    const MAX_DIST = 1800;
+
+    let players = {};
+    /**
+     * @type {SpatialAudioPlayer | null}
+     */
+    let spatial;
+
+    debugAudio.addEventListener("click", async () => {
+        console.log("Debug audio button clicked");
+        if (spatial == null) {
+            console.log("Spatial audio player is not initialized");
+            return
+        }
+        console.log(`Spatial audio status ${spatial.context.state}`)
+        console.log("Resuming spatial audio context");
+        await spatial.context.resume()
+        console.log("Spatial audio context resumed")
+    });
+
+    async function setupVoice() {
+
+        const ownPlayer = playerSelectInput.value;
+        const otherPlayers = Object.keys(players).filter(id => id !== ownPlayer);
+        await createSignaling(ws, ownPlayer);
+
+        spatial = new SpatialAudioPlayer(
+            Object.keys(players),
+            ownPlayer,
+            REF_DIST,
+            MAX_DIST,
+            1
+        );
+
+        playerRoot.replaceChildren()
+        for (let otherPlayer of otherPlayers) {
+            let stream = getPlayerStream(otherPlayer, true);
+            const li = document.createElement("li");
+            const p = document.createElement("p");
+            li.appendChild(p);
+            p.textContent = `Player ${otherPlayer} - ${stream.connection.connectionState}`;
+            stream.connection.addEventListener("connectionstatechange", e => {
+                p.textContent = `Player ${otherPlayer} - ${stream.connection.connectionState}`;
+            })
+
+
+            playerRoot.appendChild(li)
+
+            stream.onStream = (stream) => {
+                console.log("Received stream for player", otherPlayer, stream);
+                let audio = document.createElement("audio")
+                audio.muted = true
+                audio.autoplay = true
+                audio.srcObject = stream
+                playerRoot.appendChild(audio)
+                spatial.setStream(otherPlayer, stream)
+            }
+        }
+    }
+
+    ws.onopen = () => {
+
+        ws.send(JSON.stringify({
+            type: "join",
+            game_id: "0"
+        }));
+    };
+
+    ws.addEventListener("message", async (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "positions") {
+            if (playerSelectInput.childElementCount <= 1) {
+                const choosePlayerOption = document.createElement("option");
+                choosePlayerOption.value = "";
+                choosePlayerOption.textContent = "Select Player";
+                playerSelectInput.replaceChildren(
+                    choosePlayerOption, ...msg.players.map(p => {
+                        const option = document.createElement("option");
+                        option.value = p.id;
+                        option.textContent = p.id;
+                        return option;
+                    })
+                )
+            }
+
+            for (const p of msg.players) {
+
+                players[p.id] = {pos: p.pos, dead: p.dead};
+            }
+
+            const coords = new Map();
+            for (const [p, data] of Object.entries(players)) {
+                if (data.dead)
+                    coords.set(p, DEAD_COORDS);
+                else
+                    coords.set(p, {
+                        x: data.pos.x,
+                        y: data.pos.z,
+                        height: data.pos.y
+                    });
+            }
+            if (spatial != null) {
+                spatial.positionsUpdated(coords)
+            }
+        }
+
+    });
+
+    function draw() {
+
+        ctx.clearRect(0, 0, 900, 900);
+
+        for (const [id, player] of Object.entries(players)) {
+
+            const p = player.pos
+            const x = ((p.x - WORLD_MIN) / (WORLD_MAX - WORLD_MIN)) * 900;
+            const y = 900 - ((p.z - WORLD_MIN) / (WORLD_MAX - WORLD_MIN)) * 900;
+
+            const refdist = (REF_DIST / WORLD_MAX) * 900;
+            const maxdist = (MAX_DIST / WORLD_MAX) * 900;
+
+            ctx.fillStyle = player.dead ? "red" : "lime";
+            ctx.beginPath();
+            ctx.arc(x, y, 6, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = "lime";
+            ctx.beginPath();
+            ctx.arc(x, y, refdist, 0, Math.PI * 2);
+            ctx.stroke();
+
+
+            ctx.strokeStyle = "lime";
+            ctx.beginPath();
+            ctx.arc(x, y, maxdist, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = "white";
+            ctx.fillText(id, x + 8, y);
+        }
+
+        requestAnimationFrame(draw);
+    }
+
+    draw();
+
+
+</script>
+
+</body>
+</html>
