@@ -70,7 +70,6 @@ async def ws_handler(request):
                     continue
 
                 dead = []
-                print("rebroadcasting offer/candidate to peers")
                 for peer in games[game_id]:
                     if peer is ws:
                         continue

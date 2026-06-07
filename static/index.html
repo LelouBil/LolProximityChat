@@ -17,7 +17,7 @@
 </head>
 <body>
 
-<canvas id="c" width="900" height="900"></canvas>
+<canvas id="c" width="900" height="900" style="display: none;" ></canvas>
 <select id="playerSelect">
     <option value="">Select Player</option>
 </select>
@@ -36,11 +36,18 @@
 
     const ws = new WebSocket(`wss://${window.location.host}/ws`);
 
+    ws.onopen = () => {
+
+        ws.send(JSON.stringify({
+            type: "join",
+            game_id: "0"
+        }));
+    };
+
     const canvas = document.getElementById("c");
     const ctx = canvas.getContext("2d");
 
     const playerRoot = document.getElementById('playerRoot');
-    const debugAudio = document.getElementById("debugaudio");
 
 
     const playerSelectInput = document.getElementById("playerSelect");
@@ -65,18 +72,6 @@
      * @type {SpatialAudioPlayer | null}
      */
     let spatial;
-
-    debugAudio.addEventListener("click", async () => {
-        console.log("Debug audio button clicked");
-        if (spatial == null) {
-            console.log("Spatial audio player is not initialized");
-            return
-        }
-        console.log(`Spatial audio status ${spatial.context.state}`)
-        console.log("Resuming spatial audio context");
-        await spatial.context.resume()
-        console.log("Spatial audio context resumed")
-    });
 
     async function setupVoice() {
 
@@ -118,13 +113,6 @@
         }
     }
 
-    ws.onopen = () => {
-
-        ws.send(JSON.stringify({
-            type: "join",
-            game_id: "0"
-        }));
-    };
 
     ws.addEventListener("message", async (event) => {
         const msg = JSON.parse(event.data);

@@ -180,7 +180,6 @@ class PositionsExtractor():
                         for p in players
                     ]
                 }
-
                 await self._ws.send_json(payload)
             except Exception as e:
                 print(f"Error in poll loop: {e}")
